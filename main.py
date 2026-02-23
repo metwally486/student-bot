@@ -4,84 +4,86 @@ import os
 from flask import Flask
 from threading import Thread
 
-# --- نظام إيهام Render بأن البوت "موقع ويب" لضمان عدم التوقف ---
+# 1. إعداد خادم الويب للبقاء حياً على Render
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Status: Online & Monitoring"
+    return "Bot is active with full keywords list!"
 
 def run():
-    # Render يتطلب فتح منفذ (Port) وإلا سيوقف الخدمة بعد دقائق
-    port = int(os.environ.get("PORT", 8080))
+    # استخدام المنفذ 10000 لضمان استقرار الخدمة وفقاً لسجلات رندر
+    port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
 def keep_alive():
     t = Thread(target=run)
     t.start()
-# ---------------------------------------------------------
 
+# 2. إعداد البوت والتوكن
 TOKEN = "8414496098:AAGbAhsbf-7DnBoJT4tW0ZMN_osGyy_rntQ"
 bot = telebot.TeleBot(TOKEN)
 
-# قائمة الكلمات المفتاحية الشاملة التي حددتها لمشروعك
+# 3. قائمة المديرين (أنت وصديقك 8329587970)
+ADMIN_IDS = [8329587970]
+
+# 4. قائمة الكلمات المفتاحية الشاملة جداً (لن يفوت البوت أي طلب)
 KEYWORDS = [
-    "واجب", "حد", "مطلوب", "أحتاج", "ابي", "بغيت", "مين يحل", "مين يسوي", "مساعدة في", 
-    "عذر", "اعذار", "عذر طبي", "سكليف", "sick leave", "تقرير طبي",
-    "حل واجب", "حل اختبار", "كويز", "ميد", "فاينل", "بحث", "مشروع", 
-    "اسايمنت", "تخرج", "تنسيق", "كتابة", "ترجمة", "تلخيص", 
-    "بوربوينت", "برزنتيشن", "عرض", "عروض", "تصميم", "سيرة ذاتية"
+    "واجب", "حل", "بحث", "عذر", "مطلوب", "أحتاج", "ابي", "بغيت", "مشروع", "اختبار",
+    "كويز", "assignment", "homework", "تخرج", "ترجمة", "تلخيص", "بوربوينت", "تصميم",
+    "سيرة ذاتية", "اعذار", "عذر طبي", "سكليف", "sick leave", "تقرير طبي", "مين يحل",
+    "مين يسوي", "تنسيق", "ملخص", "نموذج", "تحليل", "بيانات", "عرض تقديمي"
 ]
 
-# قناتك العامة التي يجب أن يكون البوت مشرفاً فيها
 CHANNEL = "@student1_admin"
 
+@bot.message_handler(commands=['start'])
+def start_admin(message):
+    if message.from_user.id in ADMIN_IDS:
+        bot.reply_to(message, "✅ أهلاً بك يا مدير! القائمة الكاملة للكلمات مفعلة الآن (واجبات، أعذار، مشاريع).")
+
 @bot.message_handler(func=lambda message: True)
-def listen(message):
-    # تجاهل الرسائل القصيرة جداً لضمان جودة الطلبات
-    if not message.text or len(message.text) < 5:
+def monitor_requests(message):
+    if not message.text:
         return
     
     text = message.text.lower()
     
-    # التحقق من وجود أي كلمة من القائمة في نص الرسالة
-    if any(word in text for word in KEYWORDS):
-        username = message.from_user.username
-        user_id = message.from_user.id
-        group_name = message.chat.title if message.chat.title else "مجموعة غير معروفة"
+    # التحقق من وجود الكلمات المفتاحية (تم تقليل شرط الطول لضمان الرصد)
+    if any(word in text for word in KEYWORDS) and len(text) >= 2:
+        sender_username = message.from_user.username
+        sender_id = message.from_user.id
         
-        # إنشاء رابط الرسالة المباشر للوصول السريع
-        chat_id_str = str(message.chat.id).replace("-100", "")
-        message_id = message.message_id
-        
-        if message.chat.username:
-            msg_link = f"https://t.me/{message.chat.username}/{message_id}"
+        # استخراج المصدر الأصلي (احترافي مثل الصورة المرفقة)
+        if message.forward_from:
+            source = f"👤 محول من: @{message.forward_from.username if message.forward_from.username else message.forward_from.id}"
+        elif message.forward_from_chat:
+            source = f"📢 المصدر: {message.forward_from_chat.title}"
         else:
-            msg_link = f"https://t.me/c/{chat_id_str}/{message_id}"
+            source = f"📍 المصدر: {message.chat.title if message.chat.title else 'محادثة خاصة'}"
 
-        # تنسيق الرسالة التي ستصل للقناة
-        msg = f"⚡️ **طلب خدمة طلابية جديد**\n" \
-              f"─────────────────\n" \
-              f"👤 **العميل:** @{username if username else 'بدون معرف'}\n" \
-              f"🆔 **ID:** `{user_id}`\n" \
-              f"📍 **المصدر:** {group_name}\n" \
-              f"🔗 [انتقل للرسالة الأصلية]({msg_link})\n\n" \
-              f"📝 **نص الطلب:**\n_{message.text}_\n" \
-              f"─────────────────\n" \
-              f"👇 **تواصل مع العميل مباشرة:**"
+        # تنسيق الرسالة النهائي بلمسة احترافية
+        alert_msg = (
+            f"⚡️ **طلب خدمة طلابية جديد**\n"
+            f"──────────────────\n"
+            f"👤 **العميل:** @{sender_username if sender_username else 'بدون يوزر'}\n"
+            f"🆔 **ID العميل:** `{sender_id}`\n"
+            f"📌 **{source}**\n\n"
+            f"📝 **نص الطلب:**\n_{message.text}_\n"
+            f"──────────────────\n"
+            f"👇 **تواصل مع العميل مباشرة:**"
+        )
 
-        # إضافة زر المراسلة الفورية
         markup = types.InlineKeyboardMarkup()
-        if username:
-            btn_contact = types.InlineKeyboardButton("💬 مراسلة الطالب (خاص)", url=f"tg://resolve?domain={username}")
-            markup.add(btn_contact)
+        if sender_username:
+            markup.add(types.InlineKeyboardButton("💬 مراسلة الطالب (خاص)", url=f"tg://resolve?domain={sender_username}"))
         
         try:
-            bot.send_message(CHANNEL, msg, reply_markup=markup, disable_web_page_preview=True, parse_mode="Markdown")
+            bot.send_message(CHANNEL, alert_msg, reply_markup=markup, parse_mode="Markdown")
         except Exception as e:
-            print(f"حدث خطأ أثناء الإرسال: {e}")
+            print(f"Error: {e}")
 
 if __name__ == "__main__":
-    keep_alive() # تشغيل خادم الويب الوهمي
-    print("البوت يعمل الآن ويراقب الطلبات...")
+    keep_alive()
+    print("Bot is starting with FULL keywords...")
     bot.infinity_polling()
