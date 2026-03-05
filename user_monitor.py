@@ -6,10 +6,10 @@ from datetime import datetime
 from flask import Flask
 from telethon import TelegramClient, events, Button
 
-# --- 1. سيرفر الويب لإبقاء البوت حياً ---
+# --- 1. سيرفر الويب لإبقاء البوت حياً على Render ---
 app = Flask(__name__)
 @app.route('/')
-def home(): return "البوت يعمل بأعلى كفاءة!"
+def home(): return "نظام رصد الخدمات الطلابية يعمل!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -24,15 +24,14 @@ session_name = 'session_name'
 
 client = TelegramClient(session_name, api_id, api_hash)
 
-# --- 3. الكلمات المفتاحية والفلاتر ---
+# --- 3. الكلمات المفتاحية الموسعة ---
 keywords = [
     'حد', 'مين', 'واجب', 'حل', 'كويز', 'اختبار', 'مشروع', 'بحث', 'تخرج', 'تلخيص', 
     'عذر', 'اعذار', 'إجازة مرضية', 'تقرير طبي', 'سكليف', 'غياب',
     'تصميم', 'برمجة', 'كود', 'إحصاء', 'احصاء', 'رياضيات', 'فيزياء', 'ترجمة'
 ]
-forbidden = ['استثمار', 'ارباح', 'دخل', 'ضمان', 'سعر خاص']
 
-# --- 4. معالج الرسائل بتنسيق احترافي ---
+# --- 4. معالج الرسائل بتنسيق الصورة المطلوبة ---
 @client.on(events.NewMessage)
 async def handler(event):
     try:
@@ -41,45 +40,49 @@ async def handler(event):
         text = event.raw_text.strip()
         length = len(text)
         
-        # استثناء الروابط التسويقية الصريحة
+        # منع الروابط التسويقية الصريحة
         if any(x in text for x in ['http', 'wa.me', 't.me/+', 'snapchat.com']): return
 
         if any(word in text.lower() for word in keywords):
-            if 5 <= length <= 130:
-                if not any(bad in text for bad in forbidden):
-                    
-                    # جلب بيانات المرسل والمجموعة
-                    sender = await event.get_sender()
-                    sender_name = f"@{sender.username}" if getattr(sender, 'username', None) else "لا يوجد يوزر"
-                    name_display = getattr(sender, 'first_name', 'مستخدم')
-                    
-                    chat = await event.get_chat()
-                    chat_title = chat.title if hasattr(chat, 'title') else "مجموعة غير معروفة"
-                    time_now = datetime.now().strftime("%I:%M %p")
-                    
-                    # تصميم الواجهة المرتبة
-                    display_message = (
-                        f"**✨ رصد طلب جديد**\n"
-                        f"‏━━━━━━━━━━━━━━━━━━\n"
-                        f"**👤 المرسل:** {name_display} ( {sender_name} )\n"
-                        f"**📍 المصدر:** `{chat_title}`\n"
-                        f"**⏰ الوقت:** `{time_now}`\n"
-                        f"‏━━━━━━━━━━━━━━━━━━\n"
-                        f"**📝 نص الطلب:**\n"
-                        f"« _ {text} _ »\n"
-                        f"‏━━━━━━━━━━━━━━━━━━"
-                    )
-                    
-                    # إرسال الرسالة مع زر الانتقال المباشر
-                    await client.send_message(
-                        'student1_admin', 
-                        display_message, 
-                        buttons=[[Button.url("💬 تواصل مع الطالب / رد الآن", f"https://t.me/c/{chat.id}/{event.id}")]]
-                    )
+            # نطاق الطول المثالي للطلبات
+            if 15 <= length <= 150:
+                
+                # جلب بيانات المرسل والمجموعة
+                sender = await event.get_sender()
+                sender_id = sender.id
+                username = f"@{sender.username}" if getattr(sender, 'username', None) else "بدون يوزر"
+                
+                chat = await event.get_chat()
+                chat_title = chat.title if hasattr(chat, 'title') else "مجموعة غير معروفة"
+                
+                # تصميم الواجهة المطابق للصورة
+                display_message = (
+                    f"✨ **طلب خدمة طلابية جديد**\n"
+                    f"‏━━━━━━━━━━━━━━━━━━\n"
+                    f"👤 **العميل:** {username}\n"
+                    f"🆔 **ID:** `{sender_id}`\n"
+                    f"📍 **المصدر:** `{chat_title}`\n"
+                    f"🔗 [انتقل للرسالة الأصلية](https://t.me/c/{chat.id}/{event.id})\n"
+                    f"‏━━━━━━━━━━━━━━━━━━\n"
+                    f"📝 **نص الطلب:**\n"
+                    f"_{text}_\n"
+                    f"‏━━━━━━━━━━━━━━━━━━\n"
+                    f"👇 **تواصل مع العميل مباشرة:**"
+                )
+                
+                # إضافة الأزرار الشفافة
+                buttons = []
+                if getattr(sender, 'username', None):
+                    buttons.append([Button.url("💬 مراسلة الطالب (خاص)", f"https://t.me/{sender.username}")])
+                else:
+                    buttons.append([Button.url("⤴️ الرد عبر المجموعة", f"https://t.me/c/{chat.id}/{event.id}")])
+
+                await client.send_message('student1_admin', display_message, buttons=buttons)
+                
     except Exception as e:
         print(f"⚠️ خطأ: {e}")
 
-# --- 5. التشغيل الآمن ---
+# --- 5. التشغيل ---
 async def main():
     await client.start()
     await client.run_until_disconnected()
