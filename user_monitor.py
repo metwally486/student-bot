@@ -1,27 +1,27 @@
-import os
-import asyncio
-import threading
+import os, asyncio, threading
 import google.generativeai as genai
 from flask import Flask
 from telethon import TelegramClient, events, Button
+from telethon.sessions import StringSession # ضروري جداً لتجنب طلب الهاتف
 
-# ================== 1. إعدادات Gemini والبيئة ==================
-# سحب المفتاح الجديد الذي وضعته في Render
+# ================== 1. إعدادات البيئة (Render) ==================
 GEMINI_KEY = os.environ.get("GEMINI_KEY")
+SESSION_1 = os.environ.get("SESSION_1") # النص المستخرج من Termux
+
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
     ai_model = genai.GenerativeModel('gemini-1.5-flash')
 else:
     ai_model = None
 
-# ================== 2. قوائم الكلمات (تحديث لمنع الإعلانات) ==================
+# ================== 2. القائمة الموسعة (دراسة + تقنية) ==================
 ALL_KEYWORDS = [
-    'حد', 'مين', 'كيف', 'متى', 'سؤال', 'استفسار', 'احتاج', 'ممكن', 'أبغى', 'تكفون', 
-    'ساعدوني', 'واجب', 'حل', 'كويز', 'اختبار', 'مشروع', 'بحث', 'تخرج', 'شرح', 'ملخص', 
-    'برمجة', 'تصميم', 'كود', 'إحصاء', 'سلايدات', 'هومورك'
+    'حد', 'مين', 'كيف', 'متى', 'سؤال', 'استفسار', 'احتاج', 'ممكن', 'أبغى', 'ساعدوني', 
+    'واجب', 'حل', 'كويز', 'اختبار', 'مشروع', 'بحث', 'تخرج', 'شرح', 'ملخص', 
+    'برمجة', 'تصميم', 'كود', 'سي شارب', 'C#', 'SQL', 'داتابيز', 'شبكات', 
+    'باكيت تريسر', 'Packet Tracer', 'سلايدات', 'هومورك', 'تاسك'
 ]
 
-# إضافة كلمات المعلنين الذين ظهروا في صورك
 FORBIDDEN_WORDS = [
     'تواصل', 'واتساب', 'ارباح', 'استثمار', 'ضمان', 'فحص دوري', 'تأشيرات',
     'تخفيضات', 'خصم', 'يووجد لدينا', 'لدينا الآن', 'معانا', 'بأسعار'
@@ -34,76 +34,68 @@ TARGET_CHANNEL = "student1_admin"
 
 app = Flask(__name__)
 @app.route('/')
-def home(): return "Gemini-Radar is Online"
+def home(): return "Advanced Radar is Live"
 
-# ================== 4. التحليل الذكي (إصلاح الـ Loop ورفض الإعلانات) ==================
+# ================== 4. التحليل الذكي ==================
 async def analyze_message(text):
-    if not (5 <= len(text) <= 180): return False
+    if not (5 <= len(text) <= 200): return False
     text_lower = text.lower()
     
-    # فلترة أولية بالكلمات الممنوعة لمنع أصحاب الإعلانات
     if any(bad in text_lower for bad in FORBIDDEN_WORDS): return False
-    
-    # التحقق من وجود كلمات مفتاحية
     if not any(word in text_lower for word in ALL_KEYWORDS): return False
 
-    # تفعيل عقل Gemini (باستخدام توجيه صارم)
     if ai_model:
         try:
-            # استخدام to_thread يحل مشكلة RuntimeError التي ظهرت في سجلاتك
             prompt = (
-                f"حلل النص التالي: '{text}'\n"
-                "هل هذا 'طالب' يطلب مساعدة (أجب YES)؟ "
-                "أم هو 'معلن/مكتب' يعرض خدماته بخصومات (أجب NO)؟"
+                f"حلل النص: '{text}'\n"
+                "هل هذا طالب يطلب مساعدة (أجب YES)؟ "
+                "أم هو معلن يعرض خدماته (أجب NO)؟"
             )
+            # استخدام to_thread يمنع الـ RuntimeError في Render
             response = await asyncio.to_thread(ai_model.generate_content, prompt)
             return "yes" in response.text.lower()
         except:
-            # إذا تعطل المفتاح، نعتمد على الفلترة اليدوية أعلاه
             return True 
     return True
 
-# ================== 5. نظام التشغيل المستقر ==================
-async def start_radar(acc):
+# ================== 5. تشغيل الرادار بنظام StringSession ==================
+async def start_radar(session_string):
+    if not session_string: return
+    
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    client = TelegramClient(acc['session'], API_ID, API_HASH, loop=loop)
+    
+    # هنا الفرق الجوهري الذي يمنع طلب رقم الهاتف
+    client = TelegramClient(StringSession(session_string), API_ID, API_HASH, loop=loop)
     
     @client.on(events.NewMessage)
     async def handler(event):
         if event.is_private or not event.raw_text: return
-        
-        # استدعاء التحليل المطور
         if await analyze_message(event.raw_text):
             sender = await event.get_sender()
             username = getattr(sender, 'username', None)
-            user_id = getattr(sender, 'id', 'غير معروف')
             
             buttons = [[Button.url("💬 مراسلة الطالب (خاص)", f"https://t.me/{username}")]] if username else []
-            
             clean_msg = (
                 f"💗 خدمات طلابيه\n⚡️ طلب جديد مفحوص بذكاء Gemini\n━━━━━━━━━━━━━━━━━━\n"
-                f"👤 العميل: @{username if username else 'بدون_يوزر'}\n🆔 ID: `{user_id}`\n"
-                f"📍 المصدر: {getattr(event.chat, 'title', 'مجموعة')}\n"
-                f"━━━━━━━━━━━━━━━━━━\n📝 نص الطلب:\n{event.raw_text}\n━━━━━━━━━━━━━━━━━━"
+                f"📝 النص: {event.raw_text}\n━━━━━━━━━━━━━━━━━━"
             )
             try:
                 await client.send_message(TARGET_CHANNEL, clean_msg, buttons=buttons, link_preview=False)
-                await asyncio.sleep(6) 
+                await asyncio.sleep(5) 
             except: pass
 
     await client.start()
     await client.run_until_disconnected()
 
 if __name__ == '__main__':
-    # تشغيل Flask على بورد 10000 كما هو موضح في سجلاتك
     threading.Thread(target=lambda: app.run(host='0.0.0.0', port=10000), daemon=True).start()
     
-    accounts = [{'session': 'session_1'}, {'session': 'session_2'}]
-    for acc in accounts:
-        # تشغيل كل حساب في Thread مستقل تماماً لضمان استقرار Gemini
-        threading.Thread(target=lambda a=acc: asyncio.run(start_radar(a)), daemon=True).start()
+    # تشغيل الجلسة التي وضعتها في Render
+    if SESSION_1:
+        threading.Thread(target=lambda: asyncio.run(start_radar(SESSION_1)), daemon=True).start()
     
     while True:
         import time
         time.sleep(10)
+
