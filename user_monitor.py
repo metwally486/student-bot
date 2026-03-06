@@ -6,11 +6,8 @@ import re
 from flask import Flask
 from telethon import TelegramClient, events, Button
 
-# ================== إعداد التسجيل (Logging) ==================
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# ================== إعداد التسجيل ==================
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # ================== سيرفر الويب ==================
@@ -18,7 +15,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "رادار الرصد الذكي (حسابين) يعمل بنجاح!"
+    return "رادار الرصد الذكي (نسخة نهائية) يعمل بنجاح!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -26,94 +23,130 @@ def run_flask():
 
 threading.Thread(target=run_flask, daemon=True).start()
 
-# ================== متغيرات البيئة (آمنة) ==================
+# ================== متغيرات البيئة ==================
 API_ID = int(os.environ.get("API_ID", 2040))
 API_HASH = os.environ.get("API_HASH", "b18441a1ff607e10a989891a5462e627")
-TARGET_CHANNEL = os.environ.get("TARGET_CHANNEL", "student1_admin")  # يفضل استخدام ID
+TARGET_CHANNEL = os.environ.get("TARGET_CHANNEL", "student1_admin")
+SCORE_THRESHOLD = int(os.environ.get("SCORE_THRESHOLD", 3))
 
-# ================== الحسابات (يمكن جعل الجلسات من env أيضاً) ==================
+# ================== الحسابات ==================
 accounts = [
     {'name': 'رادار [1]', 'id': API_ID, 'hash': API_HASH, 'session': 'session_name'},
     {'name': 'رادار [2]', 'id': API_ID, 'hash': API_HASH, 'session': 'session_2'}
 ]
 
-# ================== قوائم الكلمات المحسّنة ==================
-# قائمة موسعة للكلمات المطلوبة (حساسية عالية)
-all_keywords = [
-    'حد', 'مين', 'كيف', 'متى', 'سؤال', 'استفسار', 'يعرف', 'يفيدني', 'احتاج', 'ممكن',
-    'أبغى', 'ابي', 'وش', 'ايش', 'شنو', 'تكفون', 'ساعدوني', 'بالله', 'لو سمحتو',
-    'واجب', 'حل', 'كويز', 'اختبار', 'مشروع', 'بحث', 'تخرج', 'مهندس', 'تصميم', 'برمجة',
-    'كود', 'إحصاء', 'رياضيات', 'فيزياء', 'كيمياء', 'ترجمة', 'محاسبة', 'اقتصاد', 'ميد', 'فاينل',
-    'عذر', 'غياب', 'سكليف', 'مرضية', 'تجسير', 'دوام', 'تدريب', 'صيفي', 'مادة', 'دكتور',
-    'شرح', 'ملخص', 'مذكرة', 'كتاب', 'مرجع', 'تمارين', 'نموذج', 'سابق', 'قديم', 'جديد',
-    'مساعدة', 'عاجل', 'ضروري', 'بسرعة', 'الله يجزاك خير', 'تكفى', 'يا جماعة', 'شباب'
+# ================== قوائم الأوزان ==================
+keyword_weights = {
+    # كلمات طلب قوية (وزن +3)
+    'واجب': 3, 'حل': 3, 'مشروع': 3, 'بحث': 3, 'كويز': 3, 'اختبار': 3,
+    'تخرج': 3, 'مهندس': 3, 'تصميم': 3, 'برمجة': 3, 'كود': 3, 'ترجمة': 3,
+    'خصوصي': 3, 'معلم': 3, 'مقرر': 3, 'كتاب': 3, 'مرجع': 3,
+    'عذر': 3, 'غياب': 3, 'مرضية': 3, 'سكليف': 4, 'تجسير': 4,
+    'تأجيل': 3, 'انسحاب': 4,
+    # كلمات طلب متوسطة (وزن +2)
+    'أبغى': 2, 'ابي': 2, 'احتاج': 2, 'ممكن': 2, 'يعرف': 2, 'يفيدني': 2,
+    'شرح': 2, 'ملخص': 2, 'مذكرة': 2, 'تمارين': 2, 'نموذج': 2,
+    'حد': 2, 'دوام': 2, 'تسجيل': 2, 'اعادة': 2,
+    # كلمات استفسار خفيفة (وزن +1)
+    'مين': 1, 'كيف': 1, 'متى': 1, 'وش': 1, 'ايش': 1, 'شنو': 1,
+    'تكفون': 1, 'ساعدوني': 1, 'بالله': 1, 'لو سمحتو': 1,
+    # كلمات إعلان (وزن سالب)
+    'تواصل': -5, 'واتساب': -5, 'واتس': -5, 'للتواصل': -5,
+    'درجة كاملة': -5, 'عرض خاص': -4, 'ضمان': -3, 'استثمار': -3,
+    'راسلني': -3, 'موجود حل': -3, 'يوجد حل': -3, 'متوفر حل': -3,
+}
+
+# قائمة السياق الأكاديمي
+academic_context = [
+    'فيزياء', 'كيمياء', 'رياضيات', 'أحياء', 'عربي', 'انجليزي',
+    'تاريخ', 'جغرافيا', 'فلسفة', 'منطق', 'إحصاء', 'محاسبة',
+    'اقتصاد', 'قانون', 'طب', 'هندسة', 'تقنية', 'برمجة',
+    'مادة', 'مقرر', 'كتاب', 'مرجع', 'خصوصي', 'دروس', 'معلم',
+    'عذر', 'غياب', 'مرضية', 'سكليف', 'تجسير', 'دوام', 'تسجيل'
 ]
 
-# كلمات إعلانية للإقصاء (يمكن تقليل حدتها إن أردت)
-forbidden_words = [
-    'تواصل', 'واتساب', 'واتس', 'للتواصل', 'ارباح', 'استثمار', 'ضمان', 'سعرنا',
-    'راسلني خاص', 'راسلني', 'درجة كاملة', 'درجة كامله', 'جميع القطاعات', 'فحص دوري',
-    'تأشيرات', 'موجود حل', 'يوجد حل', 'متوفر حل', 'أبشر بالخير', 'عقد ايجار', 'كشف طبي'
+# كلمات مستبعدة
+exclusion_words = [
+    'الله', 'الرسول', 'الدين', 'الإسلام', 'المسلم', 'القرآن',
+    'سبحان', 'الحمد', 'الشكر', 'الدعاء', 'الآية', 'السورة',
+    'الموت', 'الحياة', 'الروح', 'القلب', 'النفس', 'الإنسان'
 ]
 
-# ================== قائمة سوداء للمجموعات ==================
-# ضع معرفات المجموعات التي تريد تجاهلها (تعبئة يدوية)
-BLACKLIST_GROUPS = []  # مثال: [-1001234567890, -1009876543210]
+# ================== منع التكرار ==================
+sent_messages = set()
+MAX_SENT_IDS = 10000
 
-# ================== دوال مساعدة للفلترة الذكية ==================
+# ================== دوال مساعدة ==================
 def normalize_arabic(text):
-    """توحيد الحروف العربية وإزالة التشكيل"""
     text = re.sub(r'[إأآ]', 'ا', text)
     text = re.sub(r'[ة]', 'ه', text)
-    text = re.sub(r'[ًٌٍَُِّْ]', '', text)  # إزالة التشكيل
+    text = re.sub(r'[ًٌٍَُِّْ]', '', text)
     return text
 
-def contains_question_pattern(text):
-    """الكشف عن صيغ الأسئلة باستخدام regex"""
+def calculate_score(text):
+    text_norm = normalize_arabic(text.lower())
+    words = text_norm.split()
+    score = 0
+    matched_words = []
+    for word in words:
+        if word in keyword_weights:
+            score += keyword_weights[word]
+            matched_words.append(word)
+    for ctx in academic_context:
+        if ctx in text_norm:
+            score += 2
+            matched_words.append(f"[سياق]{ctx}")
+            break
+    for ex in exclusion_words:
+        if ex in text_norm:
+            score -= 3
+            matched_words.append(f"[مستبعد]{ex}")
+    return score, matched_words
+
+def is_likely_question(text):
     patterns = [
         r'(هل|ما|من|متى|أين|كيف|لماذا|كم)\s+\S+',
         r'(مين|وش|ايش|شنو)\s+\S+',
-        r'(\S+\s+)?(يعرف|يفيدني|يشرح)\s+\S+',
-        r'(تكفون|ساعدوني|بالله|لو سمحتو)'
+        r'(\S+\s+)?(يعرف|يفيدني|يشرح|يساعد)\s+\S+',
+        r'(تكفون|ساعدوني|بالله|لو سمحتو)',
+        r'.*\?$|.*؟$'
     ]
-    for pattern in patterns:
-        if re.search(pattern, text, re.IGNORECASE):
+    for p in patterns:
+        if re.search(p, text, re.IGNORECASE):
             return True
     return False
 
-def is_potential_request(text):
-    """تقرير ما إذا كانت الرسالة تستحق الإرسال (حساسية عالية)"""
-    if not text or len(text) < 3:
-        return False
-    text_norm = normalize_arabic(text.lower())
-    
-    # إذا احتوت على كلمة من قائمة الطلبات -> فوراً تعتبر طلباً
-    if any(word in text_norm for word in all_keywords):
-        return True
-    
-    # إذا كانت سؤالاً واضحاً -> تعتبر طلباً
-    if contains_question_pattern(text):
-        return True
-    
-    # إذا كان النص قصيراً جداً ولكن يحتمل (مثل "حد" أو "؟") -> نرسله على سبيل الاحتياط
-    if len(text) <= 10 and ('?' in text or '؟' in text):
-        return True
-    
-    return False
-
-def is_advertisement(text):
-    """الكشف عن الإعلانات (يمكن تخفيفها لعدم فقدان الطلبات)"""
+def contains_link(text):
+    link_patterns = [
+        r'https?://\S+',
+        r'www\.\S+',
+        r't\.me/\S+',
+        r'wa\.me/\S+',
+        r'bit\.ly/\S+',
+        r'[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(/\S*)?'
+    ]
     text_lower = text.lower()
-    # إذا احتوى على كلمات إعلانية قوية فقط نعتبره إعلاناً
-    strong_ads = ['تواصل', 'واتساب', 'درجة كاملة', 'عرض خاص']
-    if any(ad in text_lower for ad in strong_ads):
-        return True
-    # إذا احتوى على رابط مشبوه (روابط واتساب أو روابط دعوات)
-    if 'wa.me' in text_lower or 't.me/+' in text_lower:
+    for pattern in link_patterns:
+        if re.search(pattern, text_lower):
+            return True
+    return False
+
+def contains_phone_number(text):
+    cleaned = re.sub(r'[\s\-\(\)\+]', '', text)
+    if re.search(r'\d{10,15}', cleaned):
         return True
     return False
 
-# ================== دالة الرصد الرئيسية مع تحسينات ==================
+def is_duplicate(chat_id, message_id):
+    msg_id = f"{chat_id}:{message_id}"
+    if msg_id in sent_messages:
+        return True
+    sent_messages.add(msg_id)
+    if len(sent_messages) > MAX_SENT_IDS:
+        sent_messages.pop()
+    return False
+
+# ================== دالة الرصد الرئيسية ==================
 async def start_monitoring(acc_info):
     client = TelegramClient(acc_info['session'], acc_info['id'], acc_info['hash'])
     radar_name = acc_info['name']
@@ -124,33 +157,39 @@ async def start_monitoring(acc_info):
             if event.is_private:
                 return
 
-            chat = await event.get_chat()
-            # تجاهل المجموعات السوداء
-            if BLACKLIST_GROUPS and chat.id in BLACKLIST_GROUPS:
+            # منع التكرار
+            if is_duplicate(event.chat_id, event.id):
                 return
 
             text = event.raw_text.strip()
-            if not text:
+            # ✅ شرط الطول: لا تقل عن 5 ولا تزيد عن 110 حرف
+            if not text or len(text) < 5 or len(text) > 110:
                 return
 
-            # فلتر الإعلانات القوية (مع الاحتفاظ بالطلبات المحتملة)
-            if is_advertisement(text):
+            # منع الروابط
+            if contains_link(text):
                 return
 
-            # التحقق من أن الرسالة تستحق الرصد
-            if not is_potential_request(text):
+            # منع أرقام الهواتف
+            if contains_phone_number(text):
                 return
 
-            # اقتطاع النص الطويل جداً
-            display_text = text if len(text) <= 300 else text[:300] + "..."
+            # حساب النقاط
+            score, matched = calculate_score(text)
+            logger.debug(f"{radar_name} - score: {score}, matched: {matched}")
+
+            if score < SCORE_THRESHOLD and not is_likely_question(text):
+                return
 
             sender = await event.get_sender()
+            chat = await event.get_chat()
             username = getattr(sender, 'username', None)
             user_display = f"@{username}" if username else "بدون يوزر"
             first_name = getattr(sender, 'first_name', 'مستخدم')
             chat_title = getattr(chat, 'title', 'مجموعة')
 
-            # تنسيق الرسالة مع شريط جميل
+            matched_str = ', '.join(matched) if matched else 'لا يوجد'
+
             display_message = (
                 f"⚡️ **رصد جديد عبر {radar_name}**\n"
                 f"‏━━━━━━━━━━━━━━━━━━\n"
@@ -160,8 +199,9 @@ async def start_monitoring(acc_info):
                 f"🔗 [انتقل للرسالة الأصلية](https://t.me/c/{chat.id}/{event.id})\n"
                 f"‏━━━━━━━━━━━━━━━━━━\n"
                 f"📝 **النص المرصود:**\n"
-                f"_{display_text}_\n"
+                f"_{text}_\n"  # النص الآن ضمن 110 حرف
                 f"‏━━━━━━━━━━━━━━━━━━\n"
+                f"**النقاط:** {score} | **الكلمات:** {matched_str}\n"
                 f"👇 **تواصل مع العميل مباشرة:**"
             )
 
@@ -175,7 +215,7 @@ async def start_monitoring(acc_info):
         except Exception as e:
             logger.error(f"خطأ في {radar_name}: {e}")
 
-    # بدء العميل مع إعادة اتصال تلقائية
+    # تشغيل العميل مع إعادة اتصال تلقائية
     while True:
         try:
             await client.start()
@@ -190,7 +230,6 @@ async def start_monitoring(acc_info):
 # ================== التشغيل الرئيسي ==================
 async def main():
     tasks = [start_monitoring(acc) for acc in accounts]
-    # تجميع المهام مع الاستمرار حتى لو فشل أحدها
     await asyncio.gather(*tasks, return_exceptions=True)
 
 if __name__ == '__main__':
