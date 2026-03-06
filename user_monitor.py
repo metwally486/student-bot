@@ -4,9 +4,9 @@ import threading
 import google.generativeai as genai
 from flask import Flask
 from telethon import TelegramClient, events, Button
-from telethon.errors import FloodWaitError
 
 # ================== 1. إعدادات Gemini والبيئة ==================
+# سحب المفتاح الجديد الذي وضعته في Render
 GEMINI_KEY = os.environ.get("GEMINI_KEY")
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
@@ -14,57 +14,53 @@ if GEMINI_KEY:
 else:
     ai_model = None
 
-# ================== 2. القائمة الشاملة للكلمات والاستفسارات ==================
+# ================== 2. قوائم الكلمات (تحديث لمنع الإعلانات) ==================
 ALL_KEYWORDS = [
-    # طلبات عامة واستفسارات
-    'حد', 'مين', 'كيف', 'متى', 'سؤال', 'استفسار', 'يعرف', 'يفيدني', 'احتاج', 'ممكن',
-    'أبغى', 'ابي', 'وش', 'ايش', 'شنو', 'تكفون', 'ساعدوني', 'بالله', 'لو سمحتو',
-    'تكفى', 'يا جماعة', 'شباب', 'يا عيال', 'مين يقدر', 'مساعدة', 'عاجل', 'ضروري',
-    
-    # كلمات دراسية وأكاديمية
-    'واجب', 'حل', 'كويز', 'اختبار', 'مشروع', 'بحث', 'تخرج', 'ميد', 'فاينل', 'تقرير',
-    'تلخيص', 'شرح', 'مادة', 'دكتور', 'استاذ', 'محاضرة', 'جامعة', 'كلية', 'تخصص',
-    'سلايدات', 'ملخص', 'نماذج', 'اسئلة', 'مراجعة', 'مذاكرة', 'تاسك', 'هومورك',
-    
-    # كلمات تقنية وبرمجية (تخصصك IT)
-    'برمجة', 'تصميم', 'كود', 'إحصاء', 'رياضيات', 'فيزياء', 'كيمياء', 'ترجمة', 'محاسبة',
-    'اقتصاد', 'هندسة', 'سي شارب', 'C#', 'داتابيز', 'SQL', 'شبكات', 'باكيت تريسر', 
-    'Packet Tracer', 'بايثون', 'عرض', 'بوربوينت', 'لوغو', 'هوية بصرية', 'فوتوشوب',
-    'اندرويد', 'تطبيق', 'موقع', 'سيرفر', 'فرونت', 'باك'
+    'حد', 'مين', 'كيف', 'متى', 'سؤال', 'استفسار', 'احتاج', 'ممكن', 'أبغى', 'تكفون', 
+    'ساعدوني', 'واجب', 'حل', 'كويز', 'اختبار', 'مشروع', 'بحث', 'تخرج', 'شرح', 'ملخص', 
+    'برمجة', 'تصميم', 'كود', 'إحصاء', 'سلايدات', 'هومورك'
 ]
 
-FORBIDDEN_WORDS = ['تواصل', 'واتساب', 'ارباح', 'استثمار', 'ضمان', 'فحص دوري', 'تأشيرات']
+# إضافة كلمات المعلنين الذين ظهروا في صورك
+FORBIDDEN_WORDS = [
+    'تواصل', 'واتساب', 'ارباح', 'استثمار', 'ضمان', 'فحص دوري', 'تأشيرات',
+    'تخفيضات', 'خصم', 'يووجد لدينا', 'لدينا الآن', 'معانا', 'بأسعار'
+]
 
 # ================== 3. الإعدادات الأساسية ==================
 API_ID = 2040 
 API_HASH = "b18441a1ff607e10a989891a5462e627"
 TARGET_CHANNEL = "student1_admin"
-MY_USER_ID = 6190186046 
 
 app = Flask(__name__)
 @app.route('/')
-def home(): return "Full-Radar is Online"
+def home(): return "Gemini-Radar is Online"
 
-# ================== 4. التحليل الذكي مع نظام Fallback ==================
-async def analyze_message(client, text):
-    if not (5 <= len(text) <= 150): return False
+# ================== 4. التحليل الذكي (إصلاح الـ Loop ورفض الإعلانات) ==================
+async def analyze_message(text):
+    if not (5 <= len(text) <= 180): return False
     text_lower = text.lower()
     
-    # استبعاد الإعلانات
+    # فلترة أولية بالكلمات الممنوعة لمنع أصحاب الإعلانات
     if any(bad in text_lower for bad in FORBIDDEN_WORDS): return False
     
-    # البحث عن أي كلمة من القائمة الشاملة
+    # التحقق من وجود كلمات مفتاحية
     if not any(word in text_lower for word in ALL_KEYWORDS): return False
 
-    # التحقق عبر Gemini لضمان أنه "طلب" وليس "دردشة"
+    # تفعيل عقل Gemini (باستخدام توجيه صارم)
     if ai_model:
         try:
-            loop = asyncio.get_event_loop()
-            prompt = f"أجب بـ YES فقط إذا كان النص هو طالب يطلب مساعدة في دراسة أو مشروع، وإلا NO: {text}"
-            response = await loop.run_in_executor(None, lambda: ai_model.generate_content(prompt))
+            # استخدام to_thread يحل مشكلة RuntimeError التي ظهرت في سجلاتك
+            prompt = (
+                f"حلل النص التالي: '{text}'\n"
+                "هل هذا 'طالب' يطلب مساعدة (أجب YES)؟ "
+                "أم هو 'معلن/مكتب' يعرض خدماته بخصومات (أجب NO)؟"
+            )
+            response = await asyncio.to_thread(ai_model.generate_content, prompt)
             return "yes" in response.text.lower()
         except:
-            return True # إذا تعطل Gemini، نعتمد على الكلمات
+            # إذا تعطل المفتاح، نعتمد على الفلترة اليدوية أعلاه
+            return True 
     return True
 
 # ================== 5. نظام التشغيل المستقر ==================
@@ -76,7 +72,9 @@ async def start_radar(acc):
     @client.on(events.NewMessage)
     async def handler(event):
         if event.is_private or not event.raw_text: return
-        if await analyze_message(client, event.raw_text):
+        
+        # استدعاء التحليل المطور
+        if await analyze_message(event.raw_text):
             sender = await event.get_sender()
             username = getattr(sender, 'username', None)
             user_id = getattr(sender, 'id', 'غير معروف')
@@ -84,28 +82,27 @@ async def start_radar(acc):
             buttons = [[Button.url("💬 مراسلة الطالب (خاص)", f"https://t.me/{username}")]] if username else []
             
             clean_msg = (
-                f"💗 خدمات طلابيه\n⚡️ طلب خدمة طلابية جديد\n━━━━━━━━━━━━━━━━━━\n"
+                f"💗 خدمات طلابيه\n⚡️ طلب جديد مفحوص بذكاء Gemini\n━━━━━━━━━━━━━━━━━━\n"
                 f"👤 العميل: @{username if username else 'بدون_يوزر'}\n🆔 ID: `{user_id}`\n"
                 f"📍 المصدر: {getattr(event.chat, 'title', 'مجموعة')}\n"
-                f"🔗 [انتقل للرسالة الأصلية](https://t.me/c/{str(event.chat_id).replace('-100', '')}/{event.id})\n"
-                f"━━━━━━━━━━━━━━━━━━\n📝 نص الطلب:\n{event.raw_text}\n━━━━━━━━━━━━━━━━━━\n👇 تواصل مع العميل مباشرة:"
+                f"━━━━━━━━━━━━━━━━━━\n📝 نص الطلب:\n{event.raw_text}\n━━━━━━━━━━━━━━━━━━"
             )
             try:
                 await client.send_message(TARGET_CHANNEL, clean_msg, buttons=buttons, link_preview=False)
-                await asyncio.sleep(6) # تأخير لمنع الحظر
+                await asyncio.sleep(6) 
             except: pass
 
     await client.start()
     await client.run_until_disconnected()
 
-def run_flask():
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
-
 if __name__ == '__main__':
-    threading.Thread(target=run_flask, daemon=True).start()
-    accounts = [{'session': 'session_name'}, {'session': 'session_2'}]
+    # تشغيل Flask على بورد 10000 كما هو موضح في سجلاتك
+    threading.Thread(target=lambda: app.run(host='0.0.0.0', port=10000), daemon=True).start()
+    
+    accounts = [{'session': 'session_1'}, {'session': 'session_2'}]
     for acc in accounts:
-        threading.Thread(target=lambda: asyncio.run(start_radar(acc)), daemon=True).start()
+        # تشغيل كل حساب في Thread مستقل تماماً لضمان استقرار Gemini
+        threading.Thread(target=lambda a=acc: asyncio.run(start_radar(a)), daemon=True).start()
     
     while True:
         import time
