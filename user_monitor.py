@@ -1,15 +1,13 @@
 import os
-import re
 import asyncio
 import threading
-from datetime import datetime
 from flask import Flask
 from telethon import TelegramClient, events, Button
 
 # --- 1. سيرفر الويب لإبقاء البوت حياً على Render ---
 app = Flask(__name__)
 @app.route('/')
-def home(): return "رادار الاستفسارات الطلابية يعمل بنجاح!"
+def home(): return "نظام الرادار المزدوج (الرصد الشامل) يعمل!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -17,90 +15,106 @@ def run_flask():
 
 threading.Thread(target=run_flask, daemon=True).start()
 
-# --- 2. إعدادات الحساب ---
-api_id = 2040
-api_hash = 'b18441a1ff607e10a989891a5462e627'
-session_name = 'session_name' 
+# --- 2. إعدادات الحسابات المتعددة ---
+accounts = [
+    {
+        'name': 'رادار [1]', 
+        'id': 2040, 
+        'hash': 'b18441a1ff607e10a989891a5462e627', 
+        'session': 'session_name' 
+    },
+    {
+        'name': 'رادار [2]', 
+        'id': 2040, 
+        'hash': 'b18441a1ff607e10a989891a5462e627', 
+        'session': 'session_2' # الملف الذي استخرجته ورفعته للتو
+    }
+]
 
-client = TelegramClient(session_name, api_id, api_hash)
+# --- 3. فلاتر الكلمات الذكية والشاملة ---
 
-# --- 3. الكلمات المفتاحية (رصد شامل لكل الاستفسارات) ---
-keywords = [
-    # كلمات السؤال والاستفسار
+# كلمات الطلب والاستفسار (أدوات السؤال بكل اللهجات)
+query_keywords = [
     'حد', 'مين', 'كيف', 'متى', 'سؤال', 'استفسار', 'يعرف', 'يفيدني', 'احتاج', 'ممكن', 
-    'وش', 'شنو', 'ايش', 'تكفون', 'ساعدوني', 'بالله', 'لو سمحتو', 'يا شباب', 'يا بنات',
-    # تخصصات وخدمات
+    'أبغى', 'ابي', 'وش', 'ايش', 'شنو', 'تكفون', 'ساعدوني', 'بالله', 'لو سمحتو', 'يا شباب', 
+    'يا بنات', 'دلوني', 'تعرفون', 'أحد', 'موجود', 'يقدر', 'يقدر يفيدني'
+]
+
+# كلمات السياق (التخصصات، الخدمات، والحياة الجامعية)
+context_keywords = [
     'واجب', 'حل', 'كويز', 'اختبار', 'مشروع', 'بحث', 'تخرج', 'مهندس', 'تصميم', 'برمجة', 
-    'كود', 'إحصاء', 'رياضيات', 'فيزياء', 'كيمياء', 'ترجمة', 'محاسبة', 'اقتصاد',
-    # أمور أكاديمية
+    'كود', 'إحصاء', 'رياضيات', 'فيزياء', 'كيمياء', 'ترجمة', 'محاسبة', 'اقتصاد', 'ميد', 'فاينل',
     'عذر', 'غياب', 'سكليف', 'مرضية', 'تجسير', 'دوام', 'تدريب', 'صيفي', 'مادة', 'دكتور', 
-    'استاذ', 'تحضير', 'حرمان', 'درجات', 'معدل', 'جامعة', 'كلية'
+    'استاذ', 'تحضير', 'حرمان', 'درجات', 'معدل', 'جامعة', 'كلية', 'تسجيل', 'تخصص', 'تحويل',
+    'بوربوينت', 'عرض', 'تنسيق', 'كتابة', 'تفريغ', 'لوقو', 'شعار', 'فوتوشوب', 'مونتاج'
 ]
 
-# --- 4. كلمات المنع (فلتر الإعلانات والتواصل الخارجي)
-forbidden = [
-    'تواصل', 'واتساب', 'واتس', 'للتواصل', 'رقم', 'ارباح', 'دخل', 'استثمار', 
-    'ضمان', 'سعر', 'رخيص', 'خصم', 'عروض',  'دقة', 'انجاز', 'متوفر'
+# كلمات المنع (لحجب المنافسين والإعلانات)
+forbidden_words = [
+    'تواصل', 'واتساب', 'واتس', 'للتواصل', 'ارباح', 'استثمار', 'سعر', 'رخيص', 'ضمان',
+    'انجاز', 'فوري', 'خصم', 'عروض', 'دقة', 'مضمون', 'سعرنا', 'نقوم بالحل'
 ]
 
-# --- 5. معالج الرسائل الذكي ---
-@client.on(events.NewMessage)
-async def handler(event):
-    try:
-        if event.is_private: return 
-        
-        text = event.raw_text.strip()
-        length = len(text)
-        
-        # أ. استبعاد الروابط فوراً
-        if any(x in text for x in ['http', 'wa.me', 't.me/+', 'snapchat.com']): return
-        
-        # ب. استبعاد الرسائل التي تحتوي على كلمات "تواصل" أو إعلانات
-        if any(bad in text for bad in forbidden): return
+# --- 4. وظيفة الرصد والمعالجة ---
+async def start_monitoring(acc_info):
+    client = TelegramClient(acc_info['session'], acc_info['id'], acc_info['hash'])
+    radar_name = acc_info['name']
 
-        # ج. رصد الكلمات المفتاحية
-        if any(word in text.lower() for word in keywords):
-            # نطاق طول يسمح بالاستفسارات الحقيقية ويستبعد النصوص الطويلة جداً
-            if 2 <= length <= 150:
-                
+    @client.on(events.NewMessage)
+    async def handler(event):
+        try:
+            if event.is_private: return 
+            text = event.raw_text.strip()
+            text_lower = text.lower()
+
+            # 1. فلتر الروابط والإعلانات
+            if any(x in text_lower for x in ['http', 'wa.me', 't.me/+']): return
+            if any(bad in text_lower for bad in forbidden_words): return
+
+            # 2. نظام التحقق المزدوج (كلمة سؤال + كلمة دراسية) لضمان الدقة
+            has_query = any(word in text_lower for word in query_keywords)
+            has_context = any(ctx in text_lower for ctx in context_keywords)
+
+            if has_query and has_context and (10 <= len(text) <= 300):
                 sender = await event.get_sender()
-                sender_id = sender.id
                 username = f"@{sender.username}" if getattr(sender, 'username', None) else "بدون يوزر"
-                name_display = getattr(sender, 'first_name', 'مستخدم')
-                
                 chat = await event.get_chat()
-                chat_title = chat.title if hasattr(chat, 'title') else "مجموعة غير معروفة"
                 
-                # تصميم الواجهة الاحترافي
+                # 3. التنسيق الاحترافي للرسالة
                 display_message = (
-                    f"✨ **رصد استفسار / طلب جديد**\n"
+                    f"⚡️ **طلب / استفسار جديد عبر {radar_name}**\n"
                     f"‏━━━━━━━━━━━━━━━━━━\n"
-                    f"👤 **المرسل:** {name_display} ( {username} )\n"
-                    f"🆔 **ID:** `{sender_id}`\n"
-                    f"📍 **المصدر:** `{chat_title}`\n"
+                    f"👤 **العميل:** {getattr(sender, 'first_name', 'مستخدم')} ( {username} )\n"
+                    f"🆔 **ID:** `{sender.id}`\n"
+                    f"📍 **المصدر:** `{getattr(chat, 'title', 'مجموعة غير معروفة')}`\n"
                     f"🔗 [انتقل للرسالة الأصلية](https://t.me/c/{chat.id}/{event.id})\n"
                     f"‏━━━━━━━━━━━━━━━━━━\n"
                     f"📝 **نص الاستفسار:**\n"
                     f"_{text}_\n"
                     f"‏━━━━━━━━━━━━━━━━━━\n"
-                    f"👇 **تواصل مع العميل:**"
+                    f"👇 **تواصل مع العميل مباشرة:**"
                 )
                 
+                # 4. أزرار التفاعل السريع
                 buttons = []
                 if getattr(sender, 'username', None):
                     buttons.append([Button.url("💬 مراسلة خاصة", f"https://t.me/{sender.username}")])
-                
                 buttons.append([Button.url("⤴️ الرد في المجموعة", f"https://t.me/c/{chat.id}/{event.id}")])
 
+                # إرسال التنبيه للقناة الإدارية
                 await client.send_message('student1_admin', display_message, buttons=buttons, silent=False)
                 
-    except Exception as e:
-        print(f"⚠️ خطأ: {e}")
+        except Exception as e:
+            print(f"⚠️ خطأ في {radar_name}: {e}")
 
-# --- 6. التشغيل ---
-async def main():
     await client.start()
+    print(f"✅ {radar_name} بدأ الرصد بنجاح...")
     await client.run_until_disconnected()
+
+# --- 5. تشغيل الرادارات المتعددة ---
+async def main():
+    tasks = [start_monitoring(acc) for acc in accounts]
+    await asyncio.gather(*tasks)
 
 if __name__ == '__main__':
     asyncio.run(main())
