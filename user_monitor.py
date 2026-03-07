@@ -1,5 +1,5 @@
-# ================== الرادار الذكي لالتقاط طلبات الطلاب ==================
-# ================== النسخة النهائية المحسنة ==================
+# ================== رادار الرصد الذكي لطلبات الطلاب ==================
+# ================== النسخة النهائية مع StringSession ==================
 
 import os
 import sys
@@ -11,6 +11,7 @@ from datetime import datetime
 from collections import deque
 from flask import Flask
 from telethon import TelegramClient, events, Button
+from telethon.sessions import StringSession  # <-- مهم جداً
 
 # ================== 1. إعداد التسجيل (Logging) ==================
 logging.basicConfig(
@@ -28,11 +29,11 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return """
+    return f"""
     <h1>🎓 رادار الرصد الذكي</h1>
     <p>✅ النظام يعمل بنجاح!</p>
     <p>📊 الحالة: متصل ويعمل</p>
-    <p>🕐 آخر تحديث: """ + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + """</p>
+    <p>🕐 آخر تحديث: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
     """
 
 @app.route('/health')
@@ -43,11 +44,11 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
-# تشغيل Flask في خيط منفصل
 threading.Thread(target=run_flask, daemon=True).start()
 logger.info("✅ سيرفر الويب يعمل على المنفذ 10000")
 
-# ================== 3. متغيرات البيئة والأمان ==================def get_required_env(var_name, default=None, required=True):
+# ================== 3. متغيرات البيئة والأمان ==================
+def get_required_env(var_name, default=None, required=True):
     """دالة آمنة لجلب متغيرات البيئة"""
     value = os.environ.get(var_name, default)
     if required and (value is None or value == default):
@@ -55,10 +56,14 @@ logger.info("✅ سيرفر الويب يعمل على المنفذ 10000")
         sys.exit(1)
     return value
 
-# البيانات الحساسة (مطلوبة إجبارياً)
+# البيانات الأساسية (تأكد من وضعها في متغيرات البيئة)
 API_ID = int(get_required_env("API_ID", "2040"))
 API_HASH = get_required_env("API_HASH", "b18441a1ff607e10a989891a5462e627")
 TARGET_CHANNEL = get_required_env("TARGET_CHANNEL", "student1_admin")
+
+# قراءة الجلسات النصية من متغيرات البيئة (اختياري لكل حساب)
+SESSION_1 = os.environ.get("SESSION_1")
+SESSION_2 = os.environ.get("SESSION_2")
 
 # إعدادات الرصد
 SCORE_THRESHOLD = int(os.environ.get("SCORE_THRESHOLD", "4"))
@@ -67,25 +72,28 @@ MAX_MESSAGE_LENGTH = int(os.environ.get("MAX_MSG_LENGTH", "70"))
 
 logger.info(f"📋 الإعدادات: عتبة النقاط={SCORE_THRESHOLD}, الطول={MIN_MESSAGE_LENGTH}-{MAX_MESSAGE_LENGTH}")
 
-# ================== 4. الحسابات (User Accounts) ==================
-accounts = [
-    {
+# ================== 4. الحسابات (User Accounts) مع StringSession ==================
+accounts = []
+if SESSION_1:
+    accounts.append({
         'name': 'رادار [1]',
         'id': API_ID,
         'hash': API_HASH,
-        'session': 'session_1'
-    },
-    {
+        'session': SESSION_1   # نص الجلسة وليس اسم ملف
+    })
+if SESSION_2:
+    accounts.append({
         'name': 'رادار [2]',
         'id': API_ID,
         'hash': API_HASH,
-        'session': 'session_2'
-    },
-    # أضف المزيد من الحسابات هنا
-]
+        'session': SESSION_2
+    })
+
+if not accounts:
+    logger.error("❌ لم يتم توفير أي جلسة! أضف SESSION_1 أو SESSION_2 في متغيرات البيئة.")
+    sys.exit(1)
 
 # ================== 5. قوائم الكلمات والأوزان ==================
-
 # 🎯 كلمات الطلبات المباشرة
 request_keywords = {
     'عالي': {
@@ -96,7 +104,8 @@ request_keywords = {
         'واجب': 3, 'حل': 3, 'مشروع': 3, 'بحث': 3, 'كويز': 3, 'اختبار': 3,
         'تخرج': 3, 'مهندس': 3, 'تصميم': 3, 'برمجة': 3, 'كود': 3, 'ترجمة': 3,
         'خصوصي': 3, 'معلم': 3, 'مدرس': 3, 'مقرر': 3, 'كتاب': 3, 'مرجع': 3,
-        'عذر': 3, 'غياب': 3, 'مرضية': 3, 'سكليف': 4, 'تجسير': 4,        'تأجيل': 3, 'انسحاب': 4, 'استاذ': 2, 'دكتور': 2, 'دروس': 2
+        'عذر': 3, 'غياب': 3, 'مرضية': 3, 'سكليف': 4, 'تجسير': 4,
+        'تأجيل': 3, 'انسحاب': 4, 'استاذ': 2, 'دكتور': 2, 'دروس': 2
     },
     'خفيف': {
         'مين': 1, 'كيف': 1, 'متى': 1, 'وش': 1, 'ايش': 1, 'شنو': 1,
@@ -145,13 +154,12 @@ academic_context = [
 ]
 
 # كلمات مستبعدة (دينية، عامة جداً)
-exclusion_words = [    'الله', 'الرسول', 'الدين', 'الإسلام', 'المسلم', 'القرآن',
+exclusion_words = [
+    'الله', 'الرسول', 'الدين', 'الإسلام', 'المسلم', 'القرآن',
     'سبحان', 'الحمد', 'الشكر', 'الدعاء', 'الآية', 'السورة'
 ]
 
 # ================== 6. أنماط الكشف الأمني ==================
-
-# 🔗 أنماط الروابط
 LINK_PATTERNS = [
     r'https?://\S+',
     r'www\.\S+',
@@ -166,7 +174,6 @@ LINK_PATTERNS = [
     r'\S+@\S+\.\S+',
 ]
 
-# 📱 أنماط أرقام الهواتف
 PHONE_PATTERNS = [
     r'\+?\d{1,3}[\s\-]?\(?\d{1,4}\)?[\s\-]?\d{3,4}[\s\-]?\d{3,4}',
     r'05\d{8}',
@@ -181,7 +188,6 @@ PHONE_PATTERNS = [
     r'\d{10,15}',
 ]
 
-# 💬 كلمات التواصل
 CONTACT_WORDS = [
     'تواصل', 'للتواصل', 'راسلني', 'واتساب', 'واتس', 'wb',
     'سناب', 'انستقرام', 'انستا', 'تويتر', 'فيسبوك',
@@ -194,16 +200,14 @@ MAX_SENT_IDS = 10000
 sent_messages = deque(maxlen=MAX_SENT_IDS)
 
 def is_duplicate(chat_id, message_id):
-    """التحقق من عدم تكرار الرسالة"""    msg_id = f"{chat_id}:{message_id}"
+    msg_id = f"{chat_id}:{message_id}"
     if msg_id in sent_messages:
         return True
     sent_messages.append(msg_id)
     return False
 
 # ================== 8. دوال المعالجة النصية ==================
-
 def normalize_arabic(text):
-    """توحيد النص العربي"""
     text = re.sub(r'[إأآا]', 'ا', text)
     text = re.sub(r'[ةه]', 'ه', text)
     text = re.sub(r'[ىي]', 'ي', text)
@@ -211,7 +215,6 @@ def normalize_arabic(text):
     return text.strip().lower()
 
 def contains_link(text):
-    """الكشف عن الروابط"""
     text_lower = text.lower()
     found = []
     for pattern in LINK_PATTERNS:
@@ -223,7 +226,6 @@ def contains_link(text):
     return len(found) > 0, found[:3]
 
 def contains_phone(text):
-    """الكشف عن أرقام الهواتف"""
     cleaned = re.sub(r'[\s\-\(\)\+\.\,]', '', text)
     found = []
     for pattern in PHONE_PATTERNS:
@@ -235,7 +237,6 @@ def contains_phone(text):
     return len(found) > 0, found[:3]
 
 def is_likely_question(text):
-    """الكشف عن صيغ الأسئلة"""
     patterns = [
         r'(هل|ما|من|متى|أين|كيف|لماذا|كم)\s+\S+',
         r'(مين|وش|ايش|شنو)\s+\S+',
@@ -243,16 +244,12 @@ def is_likely_question(text):
         r'\b(يعرف|يفيدني|تشرح|تساعد)\b'
     ]
     for p in patterns:
-        if re.search(p, text, re.IGNORECASE):            return True
+        if re.search(p, text, re.IGNORECASE):
+            return True
     return False
 
 # ================== 9. نظام التحليل والفرز ==================
-
 def calculate_score(text):
-    """
-    تحليل النص وتحديد نوعه (طلب/استفسار/إعلان)
-    Returns: (score, classification, matched_words)
-    """
     text_norm = normalize_arabic(text)
     words_set = set(text_norm.split())
     
@@ -269,7 +266,6 @@ def calculate_score(text):
     inquiry_score = 0
     inquiry_type = None
     
-    # أدوات الاستفهام
     for word in words_set:
         for k, v in inquiry_keywords['أدوات استفهام'].items():
             if word == k:
@@ -278,7 +274,6 @@ def calculate_score(text):
                 matched.append(f"❓{k}")
                 break
     
-    # أفعال الاستفسار
     for k, v in inquiry_keywords['أفعال استفسار'].items():
         if k in text_norm:
             inquiry_score += v
@@ -286,15 +281,14 @@ def calculate_score(text):
             matched.append(f"💡{k}")
             break
     
-    # كلمات الإجراء الأكاديمي
     for k, v in inquiry_keywords['كلمات إجراء أكاديمي'].items():
         if k in text_norm:
             inquiry_score += v
             inquiry_type = "استفسار_إجرائي"
             matched.append(f"📋{k}")
-            break    
+            break
+    
     if inquiry_score > 0:
-        # تعزيز النقاط بالسياق الأكاديمي
         has_context = any(ctx in text_norm for ctx in academic_context)
         if has_context:
             score += inquiry_score + 2
@@ -338,10 +332,9 @@ def calculate_score(text):
     return score, classification, matched
 
 # ================== 10. تنسيق رسالة الرصد ==================
-
 def format_message(event, sender, chat, radar_name, score, classification, matched, text):
-    """تنسيق رسالة الرصد النهائية"""
-    username = getattr(sender, 'username', None)    first_name = getattr(sender, 'first_name', 'مستخدم')
+    username = getattr(sender, 'username', None)
+    first_name = getattr(sender, 'first_name', 'مستخدم')
     last_name = getattr(sender, 'last_name', '')
     full_name = f"{first_name} {last_name}".strip() or first_name
     user_id = sender.id
@@ -349,19 +342,14 @@ def format_message(event, sender, chat, radar_name, score, classification, match
     chat_id = chat.id
     msg_id = event.id
     
-    # إنشاء الرابط
     if str(chat_id).startswith('-100'):
         link = f"https://t.me/c/{str(chat_id).replace('-100', '')}/{msg_id}"
     else:
         link = f"https://t.me/c/{abs(chat_id)}/{msg_id}"
     
-    # قص النص إذا كان طويلاً
     display_text = text if len(text) <= 150 else text[:150] + "..."
-    
-    # الوقت
     timestamp = datetime.now().strftime("%H:%M:%S")
     
-    # بناء الرسالة
     msg = (
         f"⚡️ **طلب خدمة طلابية جديد**\n"
         f"🕐 `{timestamp}` | عبر {radar_name}\n"
@@ -382,7 +370,6 @@ def format_message(event, sender, chat, radar_name, score, classification, match
         f"👇 **إجراءات سريعة:**"
     )
     
-    # الأزرار
     buttons = []
     if username:
         buttons.append([Button.url("💬 مراسلة الطالب", f"https://t.me/{username}")])
@@ -390,35 +377,30 @@ def format_message(event, sender, chat, radar_name, score, classification, match
     
     return msg, buttons
 
-# ================== 11. دالة الرصد الرئيسية ==================
+# ================== 11. دالة الرصد الرئيسية (معدلة لاستخدام StringSession) ==================
 async def start_monitoring(acc_info):
-    """بدء رصد الحساب"""
-    client = TelegramClient(acc_info['session'], acc_info['id'], acc_info['hash'])
+    # استخدام StringSession بدلاً من اسم الملف
+    client = TelegramClient(StringSession(acc_info['session']), acc_info['id'], acc_info['hash'])
     radar_name = acc_info['name']
     
     @client.on(events.NewMessage)
     async def handler(event):
         try:
-            # تجاهل الخاص
             if event.is_private:
                 return
             
-            # منع التكرار
             if is_duplicate(event.chat_id, event.id):
                 return
             
-            # استخراج النص
             text = event.raw_text.strip()
             if not text:
                 return
             
-            # فحص الطول
             text_len = len(text)
             if text_len < MIN_MESSAGE_LENGTH or text_len > MAX_MESSAGE_LENGTH:
                 logger.debug(f"📏 [{radar_name}] رسالة مستبعدة للطول ({text_len})")
                 return
             
-            # الفحص الأمني
             has_link, links = contains_link(text)
             if has_link:
                 logger.debug(f"🔗 [{radar_name}] رسالة تحتوي روابط: {links}")
@@ -429,45 +411,33 @@ async def start_monitoring(acc_info):
                 logger.debug(f"📱 [{radar_name}] رسالة تحتوي أرقام: {phones}")
                 return
             
-            # التحليل
             score, classification, matched = calculate_score(text)
-            
-            # شروط القبول
             is_academic = any(ctx in normalize_arabic(text) for ctx in academic_context)
             
             should_forward = (
                 score >= SCORE_THRESHOLD or
                 (classification == "استفسار_أكاديمي" and score >= 3) or
                 (classification == "طلب_مؤكّد") or
-                (classification.startswith("استفسار") and is_academic and score >= 4)            )
+                (classification.startswith("استفسار") and is_academic and score >= 4)
+            )
             
             if not should_forward:
                 logger.debug(f"❌ [{radar_name}] رسالة مستبعدة للنقاط ({score}): {text[:40]}")
                 return
             
-            # الحصول على المعلومات
             sender = await event.get_sender()
             chat = await event.get_chat()
             
-            # تنسيق وإرسال
             msg, buttons = format_message(
                 event, sender, chat, radar_name,
                 score, classification, matched, text
             )
             
-            await client.send_message(
-                TARGET_CHANNEL,
-                msg,
-                buttons=buttons,
-                silent=False
-            )
-            
+            await client.send_message(TARGET_CHANNEL, msg, buttons=buttons, silent=False)
             logger.info(f"✅ [{radar_name}] تم إرسال: {classification} ({score} نقاط)")
             
         except Exception as e:
-            logger.error(f"❌ [{radar_name}] خطأ في المعالج: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"❌ [{radar_name}] خطأ في المعالج: {e}", exc_info=True)
     
     # حلقة الاتصال مع إعادة المحاولة
     retry_count = 0
@@ -481,21 +451,18 @@ async def start_monitoring(acc_info):
             await client.run_until_disconnected()
         except Exception as e:
             retry_count += 1
-            wait_time = min(5 * retry_count, 60)  # تراجع أسي
+            wait_time = min(5 * retry_count, 60)
             logger.error(f"⚠️ {radar_name} انقطع: {e}. إعادة المحاولة خلال {wait_time}ث (محاولة {retry_count})")
-            
             if retry_count >= max_retries:
                 logger.error(f"❌ {radar_name} تجاوز الحد الأقصى للمحاولات")
                 retry_count = 0
-            
-            await asyncio.sleep(wait_time)        finally:
+            await asyncio.sleep(wait_time)
+        finally:
             if client.is_connected():
                 await client.disconnect()
 
 # ================== 12. التشغيل الرئيسي ==================
-
 async def main():
-    """تشغيل جميع الحسابات"""
     logger.info("🚀 بدء تشغيل رادار الرصد الذكي...")
     logger.info(f"📊 عدد الحسابات: {len(accounts)}")
     logger.info(f"🎯 القناة المستهدفة: {TARGET_CHANNEL}")
