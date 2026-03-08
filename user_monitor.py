@@ -295,7 +295,8 @@ def format_message(event, sender, chat, radar_name, score, classification, match
     first_name = getattr(sender, 'first_name', 'مستخدم')
     last_name = getattr(sender, 'last_name', '')
     full_name = f"{first_name} {last_name}".strip() or first_name
-    user_id = sender.id    chat_title = getattr(chat, 'title', 'مجموعة')
+    user_id = sender.id    
+    chat_title = getattr(chat, 'title', 'مجموعة')
     
     # رابط المجموعة
     chat_username = getattr(chat, 'username', None)
