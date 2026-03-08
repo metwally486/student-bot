@@ -47,7 +47,8 @@ logger.info(f"✅ سيرفر الويب يعمل على المنفذ {os.environ
 # ================== 3. متغيرات البيئة ==================
 logger.info("📋 جاري تحميل متغيرات البيئة...")
 
-API_ID = os.environ.get("API_ID")API_HASH = os.environ.get("API_HASH")
+API_ID = os.environ.get("API_ID")
+API_HASH = os.environ.get("API_HASH")
 TARGET_CHANNEL = os.environ.get("TARGET_CHANNEL")
 
 # التحقق من المتغيرات الأساسية
@@ -243,7 +244,8 @@ def calculate_score(text):
     for k, v in inquiry_keywords['كلمات إجراء أكاديمي'].items():
         if k in text_norm:
             inquiry_score += v
-            matched.append(f"📋{k}")            break
+            matched.append(f"📋{k}")
+            break
     
     if inquiry_score > 0:
         has_context = any(ctx in text_norm for ctx in academic_context)
