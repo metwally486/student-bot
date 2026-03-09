@@ -97,7 +97,8 @@ if SESSION_2 and SESSION_2.strip():
     logger.info("✅ الحساب الثاني تم تحميله")
 
 if not accounts:
-    logger.error("❌ لم يتم توفير أي جلسة! أضف SESSION_1 في متغيرات البيئة.")    sys.exit(1)
+    logger.error("❌ لم يتم توفير أي جلسة! أضف SESSION_1 في متغيرات البيئة.")
+    sys.exit(1)
 
 logger.info(f"📊 إجمالي الحسابات: {len(accounts)}")
 
@@ -146,7 +147,8 @@ ad_killers = {
 }
 
 inquiry_keywords = {
-    'أدوات استفهام': {        'كيف': 3, 'متى': 3, 'كم': 2, 'أين': 2, 'من': 2, 'هل': 2,
+    'أدوات استفهام': {
+        'كيف': 3, 'متى': 3, 'كم': 2, 'أين': 2, 'من': 2, 'هل': 2,
         'وش': 2, 'ايش': 2, 'شنو': 2, 'ليه': 2, 'لماذا': 2, 'مين': 2
     },
     'أفعال استفسار': {
@@ -195,7 +197,8 @@ CONTACT_WORDS = [
 MAX_SENT_IDS = 10000
 sent_messages = deque(maxlen=MAX_SENT_IDS)
 
-def is_duplicate(chat_id, message_id):    key = f"{chat_id}:{message_id}"
+def is_duplicate(chat_id, message_id):
+    key = f"{chat_id}:{message_id}"
     if key in sent_messages:
         return True
     sent_messages.append(key)
@@ -293,7 +296,8 @@ def calculate_score(text):
         score += 1
     if text.endswith('?') or text.endswith('؟'):
         score += 1
-    if len(text_norm) < 8:        score -= 2
+    if len(text_norm) < 8:
+        score -= 2
     
     return score, classification, matched
 
@@ -342,7 +346,8 @@ def get_smart_links(chat, event_id):
 def format_message(event, sender, chat, radar_name, score, classification, matched, text, is_special=False):
     username = getattr(sender, 'username', None)
     first_name = getattr(sender, 'first_name', 'مستخدم')
-    last_name = getattr(sender, 'last_name', '')    full_name = f"{first_name} {last_name}".strip() or first_name
+    last_name = getattr(sender, 'last_name', '')
+    full_name = f"{first_name} {last_name}".strip() or first_name
     user_id = sender.id
     chat_title = getattr(chat, 'title', 'مجموعة')
     
@@ -391,7 +396,8 @@ def format_message(event, sender, chat, radar_name, score, classification, match
     buttons = []
     
     # زر المراسلة الخاصة
-    if username:        buttons.append([Button.url("💬 مراسلة الطالب", f"https://t.me/{username}")])
+    if username:
+        buttons.append([Button.url("💬 مراسلة الطالب", f"https://t.me/{username}")])
     
     # زر المجموعة (رابط ذكي للانضمام)
     if group_link and group_link != "#":
@@ -440,7 +446,8 @@ async def start_monitoring(acc_info):
             if chat_id == SPECIAL_CHANNEL_ID:
                 logger.info(f"⭐ [{radar_name}] تحويل فوري من القناة الخاصة")
                 
-                msg, buttons = format_message(                    event, sender, chat, radar_name,
+                msg, buttons = format_message(
+                    event, sender, chat, radar_name,
                     score=0, classification="تحويل_فوري", matched=[],
                     text=text, is_special=True
                 )
@@ -489,7 +496,8 @@ async def start_monitoring(acc_info):
             await client.send_message(TARGET_CHANNEL, msg, buttons=buttons, silent=False)
             logger.info(f"✅ [{radar_name}] {classification}")
             
-        except Exception as e:            logger.error(f"❌ [{radar_name}] خطأ: {e}")
+        except Exception as e:
+            logger.error(f"❌ [{radar_name}] خطأ: {e}")
     
     # حلقة الاتصال
     while True:
