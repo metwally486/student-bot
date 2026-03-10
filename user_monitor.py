@@ -1,5 +1,5 @@
 # ================== رادار الرصد الذكي لطلبات الطلاب ==================
-# ================== النسخة النهائية المحسنة ==================
+# ================== النسخة المبسطة النهائية ==================
 
 import os
 import sys
@@ -102,17 +102,12 @@ if not accounts:
 
 logger.info(f"📊 إجمالي الحسابات: {len(accounts)}")
 
-# ================== 5. القناة الخاصة المستثناة ==================
-# هذه القناة تطبق عليها نفس الفلاتر لكن تظهر بعلامة ⭐
-SPECIAL_CHANNEL_ID = -1001334211809
+# ================== 5. (تم إزالة التمييز – كل القنوات سواء) ==================
 
 # ================== 6. روابط دعوة المجموعات ==================
-# للمجموعات الخاصة: أضف رابط الدعوة هنا
 INVITE_LINKS = {
     # مثال: -1001234567890: "https://t.me/+AbCdEfGhIjK12345",
 }
-
-# رابط دعوة افتراضي للمجموعات الخاصة
 DEFAULT_INVITE_LINK = os.environ.get("DEFAULT_INVITE_LINK", "")
 
 # ================== 7. قوائم الكلمات ==================
@@ -307,7 +302,7 @@ def get_smart_links(chat, event_id):
     group_link = "#"
     msg_link = "#"
     
-    # رابط المجموعة (للانضمام)
+    # رابط المجموعة (للانضمام) – لا نستخدمه الآن لكن يمكن إضافته لاحقاً
     if chat_id in INVITE_LINKS:
         group_link = INVITE_LINKS[chat_id]
     elif chat_username:
@@ -315,7 +310,7 @@ def get_smart_links(chat, event_id):
     elif DEFAULT_INVITE_LINK:
         group_link = DEFAULT_INVITE_LINK
     
-    # رابط الرسالة الأصلية
+    # رابط الرسالة الأصلية (سنستخدمه للزر)
     if chat_username:
         msg_link = f"https://t.me/{chat_username}/{event_id}"
     else:
@@ -330,54 +325,35 @@ def get_smart_links(chat, event_id):
     
     return group_link, msg_link
 
-# ================== 12. تنسيق الرسالة (مختصر) ==================
-def format_message(event, sender, chat, radar_name, score, classification, matched, text, is_special=False):
+# ================== 12. تنسيق الرسالة (مبسطة جداً) ==================
+def format_message(event, sender, chat, radar_name, score, classification, matched, text):
     username = getattr(sender, 'username', None)
     first_name = getattr(sender, 'first_name', 'مستخدم')
     last_name = getattr(sender, 'last_name', '')
     full_name = f"{first_name} {last_name}".strip() or first_name
-    chat_title = getattr(chat, 'title', 'مجموعة')
-    chat_username = getattr(chat, 'username', None)
     
-    # الروابط الذكية
-    group_link, msg_link = get_smart_links(chat, event.id)
+    # الحصول على رابط الرسالة الأصلية فقط
+    _, msg_link = get_smart_links(chat, event.id)
     
     # نص مختصر
     display_text = text[:150] + "..." if len(text) > 150 else text
     
-    # تحديد إذا المجموعة خاصة
-    is_private_group = chat_username is None
+    # بناء الرسالة – بدون وقت، بدون ID، بدون مصدر
+    msg = (
+        f"{radar_name}\n"
+        f"━━━━━━━━━━\n"
+        f"👤 {full_name}\n"
+        f"🔖 @{username or 'بدون'}\n"
+        f"━━━━━━━━━━\n"
+        f"📝 {display_text}\n"
+        f"━━━━━━━━━━\n"
+        f"📊 {classification}"
+    )
     
-    # ✅ الرسالة المختصرة
-    if is_special:
-        msg = (
-            f"🔴 **تحويل فوري** | {radar_name}\n"
-            f"━━━━━━━━━━\n"
-            f"👤 {full_name}\n"
-            f"🔖 @{username or 'بدون'}\n"
-            f"📍 {chat_title} ⭐\n"
-            f"━━━━━━━━━━\n"
-            f"📝 _{display_text}_\n"
-            f"━━━━━━━━━━\n"
-            f"📊 {classification}"
-        )
-    else:
-        msg = (
-            f"⚡️ **{classification}** | {radar_name}\n"
-            f"━━━━━━━━━━\n"
-            f"👤 {full_name}\n"
-            f"🔖 @{username or 'بدون'}\n"
-            f"{'📍 ' + chat_title if is_private_group else ''}\n"
-            f"━━━━━━━━━━\n"
-            f"📝 _{display_text}_"
-        )
-    
-    # الأزرار
+    # الأزرار: زر واحد فقط "عرض الرسالة"
     buttons = []
-    if username:
-        buttons.append([Button.url("💬 مراسلة", f"t.me/{username}")])
-    if group_link and group_link != "#":
-        buttons.append([Button.url("👥 المجموعة", group_link)])
+    if msg_link and msg_link != "#":
+        buttons.append([Button.url("🔗 عرض الرسالة", msg_link)])
     
     return msg, buttons
 
@@ -408,14 +384,11 @@ async def start_monitoring(acc_info):
             if not text:
                 return
             
-            # الحصول على المعلومات
+            # الحصول على معلومات المرسل والمجموعة
             sender = await event.get_sender()
             chat = await event.get_chat()
-            chat_id = chat.id
             
-            # ==========================================
-            # ✅ تطبيق الفلاتر على جميع القنوات (بما فيها الخاصة)
-            # ==========================================
+            # تطبيق الفلاتر على جميع القنوات (لا استثناءات)
             
             # فحص الطول
             text_len = len(text)
@@ -445,22 +418,14 @@ async def start_monitoring(acc_info):
             if not should_forward:
                 return
             
-            # تحديد إذا من القناة الخاصة
-            is_from_special = (chat_id == SPECIAL_CHANNEL_ID)
-            
-            # تنسيق وإرسال
+            # تنسيق وإرسال الرسالة
             msg, buttons = format_message(
                 event, sender, chat, radar_name,
-                score, classification, matched, text,
-                is_special=is_from_special
+                score, classification, matched, text
             )
             
             await client.send_message(TARGET_CHANNEL, msg, buttons=buttons, silent=False)
-            
-            if is_from_special:
-                logger.info(f"⭐ [{radar_name}] {classification} (قناة خاصة)")
-            else:
-                logger.info(f"✅ [{radar_name}] {classification}")
+            logger.info(f"✅ [{radar_name}] {classification}")
             
         except Exception as e:
             logger.error(f"❌ [{radar_name}] خطأ: {e}")
@@ -482,7 +447,6 @@ async def start_monitoring(acc_info):
 async def main():
     logger.info("🚀 بدء رادار الرصد على Render...")
     logger.info(f"📊 الحسابات: {len(accounts)} | القناة: {TARGET_CHANNEL}")
-    logger.info(f"⭐ القناة الخاصة: {SPECIAL_CHANNEL_ID}")
     
     tasks = [start_monitoring(acc) for acc in accounts]
     await asyncio.gather(*tasks, return_exceptions=True)
