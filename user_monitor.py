@@ -1,3 +1,4 @@
+```python
 # ================== رادار الرصد الذكي لطلبات الطلاب ==================
 # ================== النسخة النهائية المحسنة ==================
 
@@ -47,7 +48,8 @@ logger.info(f"✅ سيرفر الويب يعمل على المنفذ {os.environ
 # ================== 3. متغيرات البيئة ==================
 logger.info("📋 جاري تحميل متغيرات البيئة...")
 
-API_ID = os.environ.get("API_ID")API_HASH = os.environ.get("API_HASH")
+API_ID = os.environ.get("API_ID")
+API_HASH = os.environ.get("API_HASH")
 TARGET_CHANNEL = os.environ.get("TARGET_CHANNEL")
 
 if not API_ID or not API_HASH or not TARGET_CHANNEL:
@@ -96,7 +98,8 @@ if SESSION_2 and SESSION_2.strip():
     logger.info("✅ الحساب الثاني تم تحميله")
 
 if not accounts:
-    logger.error("❌ لم يتم توفير أي جلسة! أضف SESSION_1 في متغيرات البيئة.")    sys.exit(1)
+    logger.error("❌ لم يتم توفير أي جلسة! أضف SESSION_1 في متغيرات البيئة.")
+    sys.exit(1)
 
 logger.info(f"📊 إجمالي الحسابات: {len(accounts)}")
 
@@ -145,7 +148,8 @@ ad_killers = {
     'نقدم', 'خدماتنا', 'لشراء', 'للبيع', 'سعر', 'ريال', 'دولار', 'جنيه'
 }
 
-inquiry_keywords = {    'أدوات استفهام': {
+inquiry_keywords = {
+    'أدوات استفهام': {
         'كيف': 3, 'متى': 3, 'كم': 2, 'أين': 2, 'من': 2, 'هل': 2,
         'وش': 2, 'ايش': 2, 'شنو': 2, 'ليه': 2, 'لماذا': 2, 'مين': 2
     },
@@ -194,6 +198,7 @@ CONTACT_WORDS = [
 # ================== 8. منع التكرار ==================
 MAX_SENT_IDS = 10000
 sent_messages = deque(maxlen=MAX_SENT_IDS)
+
 def is_duplicate(chat_id, message_id):
     key = f"{chat_id}:{message_id}"
     if key in sent_messages:
@@ -243,7 +248,8 @@ def calculate_score(text):
         for k, v in inquiry_keywords['أدوات استفهام'].items():
             if word == k:
                 inquiry_score += v
-                matched.append(f"❓{k}")                break
+                matched.append(f"❓{k}")
+                break
     
     for k, v in inquiry_keywords['أفعال استفسار'].items():
         if k in text_norm:
@@ -292,7 +298,8 @@ def calculate_score(text):
     if 15 <= len(text_norm) <= 70:
         score += 1
     if text.endswith('?') or text.endswith('؟'):
-        score += 1    if len(text_norm) < 8:
+        score += 1
+    if len(text_norm) < 8:
         score -= 2
     
     return score, classification, matched
@@ -341,7 +348,8 @@ def get_smart_links(chat, event_id):
 
 # ================== 12. تنسيق الرسالة (مختصر ونظيف) ==================
 def format_message(event, sender, chat, radar_name, score, classification, matched, text, is_special=False):
-    username = getattr(sender, 'username', None)    first_name = getattr(sender, 'first_name', 'مستخدم')
+    username = getattr(sender, 'username', None)
+    first_name = getattr(sender, 'first_name', 'مستخدم')
     last_name = getattr(sender, 'last_name', '')
     full_name = f"{first_name} {last_name}".strip() or first_name
     chat_title = getattr(chat, 'title', 'مجموعة')
@@ -390,7 +398,8 @@ def format_message(event, sender, chat, radar_name, score, classification, match
         buttons.append([Button.url("💬 مراسلة", f"t.me/{username}")])
     
     # زر المجموعة (رابط ذكي للانضمام)
-    if group_link and group_link != "#":        buttons.append([Button.url("👥 المجموعة", group_link)])
+    if group_link and group_link != "#":
+        buttons.append([Button.url("👥 المجموعة", group_link)])
     
     return msg, buttons
 
@@ -439,7 +448,8 @@ async def start_monitoring(acc_info):
             if contains_link(text):
                 return
             
-            # فحص أرقام الهواتف            if contains_phone(text):
+            # فحص أرقام الهواتف
+            if contains_phone(text):
                 return
             
             # تحليل النص
@@ -489,6 +499,7 @@ async def start_monitoring(acc_info):
         finally:
             if client.is_connected():
                 await client.disconnect()
+
 # ================== 14. التشغيل الرئيسي ==================
 async def main():
     logger.info("🚀 بدء رادار الرصد على Render...")
@@ -507,3 +518,4 @@ if __name__ == '__main__':
         logger.error(f"💥 خطأ فادح: {e}")
         import traceback
         traceback.print_exc()
+```
